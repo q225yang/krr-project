@@ -14,14 +14,19 @@
 
     ```
     git clone git@github.com:[github_id]/krr-project.git
-    # environment setup TBD
+    chmod +x scripts/setup_env.sh
+    scripts/setup_env.sh        # Also works for updating the environment
     ```
+    The conda environment is called `krr`.
+
+    If you need to update the environment, you can add the new packages to environment.yml and rerun the script to update the env.
 
 - To start a VSCode server with GPU using vscode_starter.sh. (Details can be found at https://asurc.atlassian.net/wiki/spaces/RC/pages/1907818602/VSCode#Create-a-VSCode-Tunnel-Via-the-Command-line)
 
     ```
-    chmod +x vscode_starter.sh
-    ./vscode_starter.sh
+    chmod +x scripts/vscode_starter.sh
+    scripts/vscode_starter.sh
+    # scripts/vscode_starter.sh 0-12 # Allocate a 12-hour vscode session
     ```
     Then, you can follow the prompt to set up the tunnel and connect to the tunnel in your local VSCode.
 

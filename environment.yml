@@ -1,0 +1,8 @@
+name: krr
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - spacy>=3.7,<4.0
+  - tqdm
+  - requests
