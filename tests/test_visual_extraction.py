@@ -415,6 +415,43 @@ class TestExtractJson:
 
 
 # ---------------------------------------------------------------------------
+# model_backend — prompt echo stripping / caption fallback
+# ---------------------------------------------------------------------------
+
+
+class TestPromptEchoHandling:
+    def test_strip_prompt_echo_removes_exact_prompt(self):
+        from visual_extraction.model_backend import _strip_prompt_echo
+
+        prompt = "Question: Describe this image. Answer:"
+        assert _strip_prompt_echo(prompt, prompt) == ""
+
+    def test_strip_prompt_echo_keeps_generated_answer(self):
+        from visual_extraction.model_backend import _strip_prompt_echo
+
+        prompt = "Question: Describe this image. Answer:"
+        text = f"{prompt} A red ball sits on a ramp."
+        assert _strip_prompt_echo(text, prompt) == "A red ball sits on a ramp."
+
+    def test_caption_retries_without_prompt_when_prompted_output_is_empty(self):
+        from visual_extraction.model_backend import CAPTION_PROMPT, VLMBackend
+
+        backend = object.__new__(VLMBackend)
+        calls = []
+
+        def fake_generate(image, prompt, max_new_tokens):
+            calls.append(prompt)
+            return "" if prompt == CAPTION_PROMPT else "A red ball sits on a ramp."
+
+        backend._generate = fake_generate
+
+        result = backend.caption(None)
+
+        assert result == "A red ball sits on a ramp."
+        assert calls == [CAPTION_PROMPT, None]
+
+
+# ---------------------------------------------------------------------------
 # model_backend — detect_relations
 # ---------------------------------------------------------------------------
 
@@ -427,7 +464,8 @@ class TestDetectRelations:
 
         def fake_generate(image, prompt, max_new_tokens):
             assert "Given these objects in the image: ball, ramp," in prompt
-            assert '{"source":"ball","target":"ramp","relation":"sliding_down"}' in prompt
+            assert '"source" (object label)' in prompt
+            assert "Use short snake_case relation names." in prompt
             return '[{"source":"ball","target":"ramp","relation":"sliding_down"}]'
 
         backend._generate = fake_generate

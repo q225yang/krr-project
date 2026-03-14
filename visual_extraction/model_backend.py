@@ -30,9 +30,7 @@ OBJECT_PROMPT = (
     "Return a JSON array where each element is an object with these keys: "
     '"label" (str), "color" (str or null), "shape" (str or null), '
     '"material" (str or null), "size" ("small", "medium", "large", or null). '
-    "Example: "
-    '[{"label":"ball","color":"red","shape":"sphere","material":"rubber","size":"small"}]. '
-    "Output only the JSON array, nothing else."
+    "Use null when a field is unknown. Output only the JSON array, nothing else."
 )
 
 RELATION_PROMPT_TMPL = (
@@ -41,9 +39,7 @@ RELATION_PROMPT_TMPL = (
     "Return a JSON array of relation triples, each with keys: "
     '"source" (object label), "target" (object label), "relation" (e.g. on_top_of, '
     "next_to, connected_to, sliding_down, contains, below, above, leaning_against). "
-    "Example: "
-    '[{{"source":"ball","target":"ramp","relation":"sliding_down"}}]. '
-    "Output only the JSON array, nothing else."
+    "Use short snake_case relation names. Output only the JSON array, nothing else."
 )
 
 
@@ -80,6 +76,26 @@ def _extract_json(text: str, fallback: Any) -> Any:
                 pass
 
     return fallback
+
+
+def _normalise_whitespace(text: str) -> str:
+    """Collapse repeated whitespace for prompt/output comparisons."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _strip_prompt_echo(text: str, prompt: str | None) -> str:
+    """Remove an echoed prompt prefix from generated text when present."""
+    cleaned = text.strip()
+    if not cleaned or not prompt:
+        return cleaned
+
+    prompt = prompt.strip()
+    if cleaned.startswith(prompt):
+        cleaned = cleaned[len(prompt):].lstrip(" \t\r\n:-")
+    elif _normalise_whitespace(cleaned) == _normalise_whitespace(prompt):
+        cleaned = ""
+
+    return cleaned.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +194,14 @@ class VLMBackend:
         self._model, self._processor, self._backend = _load_blip(self.device)
         logger.info("BLIP-base loaded on %s.", self.device)
 
+    def _prepare_prompt(self, prompt: str | None) -> str | None:
+        """Format prompts for backends that expect VQA-style text."""
+        if not prompt:
+            return None
+        if self._backend == "blip2":
+            return f"Question: {prompt} Answer:"
+        return prompt
+
     # ------------------------------------------------------------------
     # Core generation
     # ------------------------------------------------------------------
@@ -187,15 +211,16 @@ class VLMBackend:
         import torch
 
         img = image.convert("RGB")
+        prepared_prompt = self._prepare_prompt(prompt)
 
         if self._backend == "blip2":
-            inputs = self._processor(img, text=prompt, return_tensors="pt").to(
+            inputs = self._processor(img, text=prepared_prompt, return_tensors="pt").to(
                 self.device, torch.float16
             )
         else:
             # BLIP-base: text is the conditional prompt (can be None)
-            if prompt:
-                inputs = self._processor(img, text=prompt, return_tensors="pt").to(
+            if prepared_prompt:
+                inputs = self._processor(img, text=prepared_prompt, return_tensors="pt").to(
                     self.device
                 )
             else:
@@ -204,8 +229,17 @@ class VLMBackend:
         with torch.no_grad():
             output_ids = self._model.generate(**inputs, max_new_tokens=max_new_tokens)
 
-        decoded = self._processor.decode(output_ids[0], skip_special_tokens=True)
-        return decoded.strip()
+        generated_ids = output_ids[0]
+        input_ids = inputs.get("input_ids")
+        if prepared_prompt and input_ids is not None:
+            prompt_ids = input_ids[0]
+            prompt_len = int(prompt_ids.shape[-1])
+            if prompt_len and generated_ids.shape[-1] >= prompt_len:
+                if generated_ids[:prompt_len].tolist() == prompt_ids.tolist():
+                    generated_ids = generated_ids[prompt_len:]
+
+        decoded = self._processor.decode(generated_ids, skip_special_tokens=True)
+        return _strip_prompt_echo(decoded, prepared_prompt)
 
     # ------------------------------------------------------------------
     # Public API
@@ -213,7 +247,14 @@ class VLMBackend:
 
     def caption(self, image: Image.Image) -> str:
         """Return a 1–3 sentence natural-language caption for *image*."""
-        return self._generate(image, CAPTION_PROMPT, max_new_tokens=128)
+        caption = self._generate(image, CAPTION_PROMPT, max_new_tokens=128)
+        if caption:
+            return caption
+
+        logger.debug(
+            "Prompted caption generation returned empty text; retrying without a prompt."
+        )
+        return self._generate(image, None, max_new_tokens=128)
 
     def generate(self, image: Image.Image, prompt: str, max_new_tokens: int = 256) -> str:
         """Return free-form text conditioned on *image* and *prompt*."""
@@ -222,6 +263,9 @@ class VLMBackend:
     def detect_objects(self, image: Image.Image) -> list[dict]:
         """Return a list of object dicts with label/color/shape/material/size."""
         raw = self._generate(image, OBJECT_PROMPT, max_new_tokens=256)
+        if not raw:
+            return []
+
         result = _extract_json(raw, fallback=None)
         if isinstance(result, list):
             objects = []
