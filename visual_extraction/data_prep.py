@@ -36,6 +36,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".webp")
+
 # Fields that must never appear in the manifest — label-leaking information.
 _PROHIBITED_FIELDS: frozenset[str] = frozenset(
     {"answer", "label", "correct_answer", "ground_truth", "gt"}
@@ -60,6 +62,68 @@ def _assert_no_leakage(records: list[dict[str, Any]]) -> None:
                 f"Prohibited field(s) {leaked} found in manifest record {rec.get('image_id')}. "
                 "Remove answer / label fields before writing the manifest."
             )
+
+
+def _resolve_existing_path(candidates: list[Path]) -> Path | None:
+    """Return the first existing path from *candidates*."""
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _resolve_raw_image_path(
+    data_dir: Path,
+    images_dir: Path,
+    idx: Any,
+    file_name_field: Any,
+) -> str:
+    """Resolve a robust image path for a raw PhysBench question record."""
+    candidates: list[Path] = []
+    search_stems: list[str] = []
+
+    if file_name_field:
+        fname = file_name_field[0] if isinstance(file_name_field, list) else file_name_field
+        fname_path = Path(str(fname))
+        search_stems.append(fname_path.stem)
+
+        if fname_path.is_absolute():
+            candidates.append(fname_path)
+        else:
+            candidates.extend(
+                [
+                    images_dir / fname_path,
+                    data_dir / fname_path,
+                    images_dir / fname_path.name,
+                ]
+            )
+
+    if idx is not None:
+        stem = str(idx)
+        search_stems.append(stem)
+        for ext in _IMAGE_EXTENSIONS:
+            candidates.append(images_dir / f"{stem}{ext}")
+
+    resolved = _resolve_existing_path(candidates)
+    if resolved is not None:
+        return str(resolved)
+
+    seen_stems: set[str] = set()
+    for stem in search_stems:
+        if not stem or stem in seen_stems:
+            continue
+        seen_stems.add(stem)
+        matches = sorted(p for p in images_dir.glob(f"{stem}.*") if p.is_file())
+        if matches:
+            return str(matches[0])
+
+    if candidates:
+        return str(candidates[0])
+    return str(images_dir / f"{idx}.jpg")
 
 
 def _load_raw_physbench(
@@ -109,23 +173,13 @@ def _load_raw_physbench(
         if mode != "image-only":
             continue
 
-        # Locate the image file using file_name field from PhysBench test.json
-        file_name_field = q.get("file_name")
-        image_path: str = ""
-        if file_name_field:
-            # file_name is a list; take the first entry
-            fname = file_name_field[0] if isinstance(file_name_field, list) else file_name_field
-            candidate = images_dir / fname
-            image_path = str(candidate)
-        else:
-            # Fallback: try numeric naming conventions
-            for ext in (".jpg", ".jpeg", ".png", ".webp"):
-                candidate = images_dir / f"{idx}{ext}"
-                if candidate.exists():
-                    image_path = str(candidate)
-                    break
-            if not image_path:
-                image_path = str(images_dir / f"{idx}.jpg")
+        # Resolve the image path defensively because PhysBench exports vary.
+        image_path = _resolve_raw_image_path(
+            data_dir=data_dir,
+            images_dir=images_dir,
+            idx=idx,
+            file_name_field=q.get("file_name"),
+        )
 
         question_raw = q.get("question", "")
         # Strip option lines (A. / B. / …) from question text

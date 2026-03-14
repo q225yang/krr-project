@@ -206,6 +206,57 @@ class TestManifestLeakagePrevention:
 
 
 # ---------------------------------------------------------------------------
+# data_prep — image path resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRawImagePath:
+    def test_prefers_existing_data_dir_file_name_path(self):
+        from visual_extraction.data_prep import _resolve_raw_image_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            data_dir = tmp_path / "data"
+            images_dir = data_dir / "image"
+            nested_dir = data_dir / "nested"
+            images_dir.mkdir(parents=True)
+            nested_dir.mkdir(parents=True)
+
+            expected = nested_dir / "example.png"
+            expected.write_bytes(b"fake")
+
+            result = _resolve_raw_image_path(
+                data_dir=data_dir,
+                images_dir=images_dir,
+                idx="42",
+                file_name_field="nested/example.png",
+            )
+
+            assert result == str(expected)
+
+    def test_falls_back_to_matching_stem_with_different_extension(self):
+        from visual_extraction.data_prep import _resolve_raw_image_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            data_dir = tmp_path / "data"
+            images_dir = data_dir / "image"
+            images_dir.mkdir(parents=True)
+
+            expected = images_dir / "42.png"
+            expected.write_bytes(b"fake")
+
+            result = _resolve_raw_image_path(
+                data_dir=data_dir,
+                images_dir=images_dir,
+                idx="42",
+                file_name_field=None,
+            )
+
+            assert result == str(expected)
+
+
+# ---------------------------------------------------------------------------
 # data_prep — prepare_subset writes correct manifest
 # ---------------------------------------------------------------------------
 
@@ -361,6 +412,31 @@ class TestExtractJson:
         result = self._extract(text, fallback=None)
         assert isinstance(result, list)
         assert result[0]["color"] == "blue"
+
+
+# ---------------------------------------------------------------------------
+# model_backend — detect_relations
+# ---------------------------------------------------------------------------
+
+
+class TestDetectRelations:
+    def test_detect_relations_formats_prompt_and_parses_json(self):
+        from visual_extraction.model_backend import VLMBackend
+
+        backend = object.__new__(VLMBackend)
+
+        def fake_generate(image, prompt, max_new_tokens):
+            assert "Given these objects in the image: ball, ramp," in prompt
+            assert '{"source":"ball","target":"ramp","relation":"sliding_down"}' in prompt
+            return '[{"source":"ball","target":"ramp","relation":"sliding_down"}]'
+
+        backend._generate = fake_generate
+
+        result = backend.detect_relations(None, ["ball", "ramp"])
+
+        assert result == [
+            {"source": "ball", "target": "ramp", "relation": "sliding_down"}
+        ]
 
 
 # ---------------------------------------------------------------------------

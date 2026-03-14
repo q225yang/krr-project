@@ -42,7 +42,7 @@ RELATION_PROMPT_TMPL = (
     '"source" (object label), "target" (object label), "relation" (e.g. on_top_of, '
     "next_to, connected_to, sliding_down, contains, below, above, leaning_against). "
     "Example: "
-    '[{"source":"ball","target":"ramp","relation":"sliding_down"}]. '
+    '[{{"source":"ball","target":"ramp","relation":"sliding_down"}}]. '
     "Output only the JSON array, nothing else."
 )
 
