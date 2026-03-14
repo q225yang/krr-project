@@ -1,0 +1,14 @@
+# Core NLP (already in environment.yml / conda env)
+spacy>=3.7,<4.0
+tqdm
+requests
+
+# Vision / VLM
+Pillow>=9.0
+torch>=2.0
+torchvision>=0.15
+transformers>=4.36
+accelerate>=0.25
+
+# Testing
+pytest>=7.0
