@@ -429,6 +429,45 @@ class TestProgressAndWarnings:
 
 
 # ---------------------------------------------------------------------------
+# caption/object cleanup helpers
+# ---------------------------------------------------------------------------
+
+
+class TestCaptionAndObjectCleanup:
+    def test_clean_caption_text_strips_visual_leadin(self):
+        from visual_extraction.text_cleanup import clean_caption_text
+
+        result = clean_caption_text("The image shows a person riding a hoverboard.")
+        assert result == "A person riding a hoverboard."
+
+    def test_caption_primary_clause_drops_relative_clause(self):
+        from visual_extraction.text_cleanup import caption_primary_clause
+
+        result = caption_primary_clause(
+            "The image shows a person riding a hoverboard, which is a type of electric skateboard."
+        )
+        assert result == "A person riding a hoverboard"
+
+    def test_objects_conflict_with_caption_detects_mismatch(self):
+        from visual_extraction.object_detection import _objects_conflict_with_caption
+
+        objects = [{"label": "ball", "color": "red", "shape": "sphere", "material": None, "size": "small"}]
+        caption = "A person riding a hoverboard."
+        assert _objects_conflict_with_caption(objects, caption) is True
+
+    def test_simple_caption_object_fallback_extracts_salient_words(self):
+        from visual_extraction.object_detection import _simple_caption_object_fallback
+
+        objects = _simple_caption_object_fallback(
+            "The image shows a person riding a hoverboard, which is a type of electric skateboard."
+        )
+        labels = [obj["label"] for obj in objects]
+        assert "person" in labels
+        assert "hoverboard" in labels
+        assert "type" not in labels
+
+
+# ---------------------------------------------------------------------------
 # model_backend — _extract_json
 # ---------------------------------------------------------------------------
 

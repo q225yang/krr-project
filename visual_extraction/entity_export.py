@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .progress_utils import progress_percent, should_log_progress, should_warn_count
+from .text_cleanup import caption_primary_clause
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,18 @@ def _get_nlp():
 # ---------------------------------------------------------------------------
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
+_GENERIC_ENTITY_BLACKLIST = {
+    "image",
+    "picture",
+    "photo",
+    "scene",
+    "type",
+    "kind",
+    "thing",
+    "object",
+    "which",
+    "that",
+}
 
 
 def normalize_entity(text: str) -> str:
@@ -166,15 +179,22 @@ def normalize_entity(text: str) -> str:
 def _extract_entities_from_caption(caption: str) -> list[str]:
     """Extract noun/noun-chunk entities from a caption using spaCy."""
     nlp = _get_nlp()
+    caption = caption_primary_clause(caption)
     if nlp is None or not caption:
         return []
     doc = nlp(caption)
     entities: list[str] = []
     for chunk in doc.noun_chunks:
+        if chunk.root.pos_ not in {"NOUN", "PROPN"}:
+            continue
         root = chunk.root.lemma_.lower()
+        if root in _GENERIC_ENTITY_BLACKLIST or chunk.root.is_stop:
+            continue
         entities.append(root)
     for ent in doc.ents:
-        entities.append(ent.text.lower())
+        ent_text = ent.text.lower().strip()
+        if ent_text and ent_text not in _GENERIC_ENTITY_BLACKLIST:
+            entities.append(ent_text)
     return entities
 
 
@@ -247,7 +267,11 @@ def aggregate_entities(
         if not raw:
             continue
         norm = normalize_entity(raw)
-        if len(norm) >= _MIN_ENTITY_LEN and norm not in seen:
+        if (
+            len(norm) >= _MIN_ENTITY_LEN
+            and norm not in seen
+            and norm not in _GENERIC_ENTITY_BLACKLIST
+        ):
             seen.add(norm)
             norm_entities.append(norm)
 

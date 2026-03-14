@@ -22,6 +22,7 @@ from PIL import Image
 
 from .model_backend import CAPTION_PROMPT, VLMBackend
 from .progress_utils import progress_percent, should_log_progress, should_warn_count
+from .text_cleanup import clean_caption_text
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def caption_images(
 
             try:
                 image = Image.open(image_path).convert("RGB")
-                caption = model.caption(image)
+                caption = clean_caption_text(model.caption(image))
                 entry = {"image_id": image_id, "caption": caption}
             except FileNotFoundError:
                 logger.error("Image not found: %s (image_id=%s)", image_path, image_id)

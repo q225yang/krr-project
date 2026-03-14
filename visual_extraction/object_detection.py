@@ -26,18 +26,31 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image
 
 from .model_backend import VLMBackend
 from .progress_utils import progress_percent, should_log_progress, should_warn_count
+from .text_cleanup import caption_primary_clause
 
 logger = logging.getLogger(__name__)
 
 # Allowed size values (normalise anything else to null)
 _VALID_SIZES = {"small", "medium", "large"}
 _GENERIC_OBJECT_LABELS = {"object", "thing", "item"}
+_CAPTION_OBJECT_BLACKLIST = {
+    "image",
+    "picture",
+    "photo",
+    "scene",
+    "type",
+    "kind",
+    "battery",
+    "rider",
+}
+_nlp = None
 
 
 def _normalise_size(raw: str | None) -> str | None:
@@ -80,10 +93,111 @@ def _object_warning_reason(objects: list[dict]) -> str | None:
     return None
 
 
+def _get_nlp():
+    global _nlp
+    if _nlp is None:
+        try:
+            import spacy
+
+            _nlp = spacy.load("en_core_web_sm")
+        except (ModuleNotFoundError, OSError):
+            _nlp = None
+    return _nlp
+
+
+def _caption_mentions_label(caption: str, label: str) -> bool:
+    caption_norm = f" {caption.lower()} "
+    label_norm = re.sub(r"[_\-]+", " ", label).strip().lower()
+    if not label_norm:
+        return False
+    if f" {label_norm} " in caption_norm:
+        return True
+    head = label_norm.split()[-1]
+    return f" {head} " in caption_norm
+
+
+def _objects_conflict_with_caption(objects: list[dict], caption: str) -> bool:
+    """Return True when detected object labels are unsupported by the caption."""
+    if not objects or not caption.strip():
+        return False
+
+    labels = [
+        str(obj.get("label", "")).strip().lower()
+        for obj in objects
+        if str(obj.get("label", "")).strip()
+    ]
+    labels = [label for label in labels if label not in _GENERIC_OBJECT_LABELS]
+    if not labels:
+        return True
+
+    return not any(_caption_mentions_label(caption, label) for label in labels)
+
+
+def _simple_caption_object_fallback(caption: str) -> list[dict]:
+    clause = caption_primary_clause(caption).lower()
+    candidates = re.findall(r"\b[a-z][a-z0-9_-]{2,}\b", clause)
+    seen: set[str] = set()
+    objects: list[dict] = []
+    for token in candidates:
+        if token in _CAPTION_OBJECT_BLACKLIST or token in _GENERIC_OBJECT_LABELS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        objects.append(
+            {
+                "label": token,
+                "color": None,
+                "shape": None,
+                "material": None,
+                "size": None,
+            }
+        )
+    return objects[:5]
+
+
+def _objects_from_caption(caption: str) -> list[dict]:
+    """Derive object labels from a caption when structured detection fails."""
+    clause = caption_primary_clause(caption)
+    if not clause:
+        return []
+
+    nlp = _get_nlp()
+    if nlp is None:
+        return _simple_caption_object_fallback(clause)
+
+    doc = nlp(clause)
+    seen: set[str] = set()
+    objects: list[dict] = []
+    for chunk in doc.noun_chunks:
+        root = chunk.root
+        if root.pos_ not in {"NOUN", "PROPN"}:
+            continue
+        label = root.lemma_.strip().lower()
+        if not label or label in _CAPTION_OBJECT_BLACKLIST or label in _GENERIC_OBJECT_LABELS:
+            continue
+        if label in seen:
+            continue
+        seen.add(label)
+        objects.append(
+            {
+                "label": label,
+                "color": None,
+                "shape": None,
+                "material": None,
+                "size": None,
+            }
+        )
+    if objects:
+        return objects
+    return _simple_caption_object_fallback(clause)
+
+
 def detect_objects(
     manifest: list[dict],
     output_dir: Path,
     model: VLMBackend,
+    captions_map: dict[str, str] | None = None,
 ) -> list[dict]:
     """Detect objects and attributes for all images in *manifest*.
 
@@ -114,6 +228,7 @@ def detect_objects(
         for index, rec in enumerate(manifest, start=1):
             image_id = str(rec["image_id"])
             image_path = Path(rec["image_path"])
+            caption = captions_map.get(image_id, "") if captions_map else ""
 
             try:
                 image = Image.open(image_path).convert("RGB")
@@ -130,6 +245,26 @@ def detect_objects(
                     exc_info=True,
                 )
                 objects = []
+
+            fallback_reason: str | None = None
+            reason = _object_warning_reason(objects)
+            if reason:
+                fallback_reason = reason
+            elif caption and _objects_conflict_with_caption(objects, caption):
+                fallback_reason = "object labels conflict with the generated caption"
+
+            if fallback_reason and caption:
+                fallback_objects = _objects_from_caption(caption)
+                if fallback_objects:
+                    logger.warning(
+                        "Using caption-derived object fallback for image_id=%s: %s. "
+                        "original=%s fallback=%s",
+                        image_id,
+                        fallback_reason,
+                        objects[:3],
+                        fallback_objects[:3],
+                    )
+                    objects = fallback_objects
 
             entry = {"image_id": image_id, "objects": objects}
             results.append(entry)

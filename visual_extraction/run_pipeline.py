@@ -194,7 +194,7 @@ def _run_captioning(
 
 
 def _run_object_detection(
-    args: argparse.Namespace, manifest: list[dict], model
+    args: argparse.Namespace, manifest: list[dict], model, captions_map: dict[str, str]
 ) -> dict[str, list[dict]]:
     from .object_detection import detect_objects, load_objects
 
@@ -203,7 +203,7 @@ def _run_object_detection(
         return load_objects(args.output_dir)
 
     logger.info("=== Stage 3 / 5: Object and attribute detection ===")
-    results = detect_objects(manifest, args.output_dir, model)
+    results = detect_objects(manifest, args.output_dir, model, captions_map=captions_map)
     logger.info("Stage 3 complete — %d images processed.", len(results))
     return {r["image_id"]: r["objects"] for r in results}
 
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         captions_map = _run_captioning(args, manifest, model)
 
         # Stage 3
-        objects_map = _run_object_detection(args, manifest, model)
+        objects_map = _run_object_detection(args, manifest, model, captions_map)
 
         # Stage 4
         scene_graphs_map = _run_scene_graphs(args, manifest, model, objects_map)
