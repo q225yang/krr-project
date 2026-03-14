@@ -111,16 +111,23 @@ def _load_raw_physbench(
         if mode != "image-only":
             continue
 
-        # Locate the image file — try common naming conventions
+        # Locate the image file using file_name field from PhysBench test.json
+        file_name_field = q.get("file_name")
         image_path: str = ""
-        for ext in (".jpg", ".jpeg", ".png", ".webp"):
-            candidate = images_dir / f"{idx}{ext}"
-            if candidate.exists():
-                image_path = str(candidate)
-                break
-        if not image_path:
-            # Store a best-guess path even if file is not yet present
-            image_path = str(images_dir / f"{idx}.jpg")
+        if file_name_field:
+            # file_name is a list; take the first entry
+            fname = file_name_field[0] if isinstance(file_name_field, list) else file_name_field
+            candidate = images_dir / fname
+            image_path = str(candidate)
+        else:
+            # Fallback: try numeric naming conventions
+            for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                candidate = images_dir / f"{idx}{ext}"
+                if candidate.exists():
+                    image_path = str(candidate)
+                    break
+            if not image_path:
+                image_path = str(images_dir / f"{idx}.jpg")
 
         question_raw = q.get("question", "")
         # Strip option lines (A. / B. / …) from question text
