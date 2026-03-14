@@ -108,7 +108,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--subset_size",
         type=int,
         default=None,
-        help="Deprecated and ignored. The pipeline now uses all image-only records.",
+        help="Optional cap on the number of image-only records to process. "
+        "Useful for smoke tests like --subset_size 1.",
     )
     parser.add_argument(
         "--device",

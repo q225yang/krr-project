@@ -15,13 +15,32 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image
 
-from .model_backend import VLMBackend
+from .model_backend import CAPTION_PROMPT, VLMBackend
+from .progress_utils import progress_percent, should_log_progress, should_warn_count
 
 logger = logging.getLogger(__name__)
+
+
+def _normalise_caption(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _caption_warning_reason(caption: str) -> str | None:
+    cleaned = caption.strip()
+    if not cleaned:
+        return "empty caption"
+
+    prompt_norm = _normalise_caption(CAPTION_PROMPT)
+    caption_norm = _normalise_caption(cleaned)
+    if caption_norm == prompt_norm or caption_norm.startswith(prompt_norm):
+        return "caption matches the instruction prompt"
+
+    return None
 
 
 def caption_images(
@@ -49,9 +68,14 @@ def caption_images(
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "captions.jsonl"
     results: list[dict] = []
+    total = len(manifest)
+    suspicious_count = 0
+    caption_counts: dict[str, int] = {}
+
+    logger.info("Captioning %d images. Progress will be logged periodically.", total)
 
     with out_path.open("w", encoding="utf-8") as fout:
-        for rec in manifest:
+        for index, rec in enumerate(manifest, start=1):
             image_id = str(rec["image_id"])
             image_path = Path(rec["image_path"])
 
@@ -70,6 +94,39 @@ def caption_images(
 
             results.append(entry)
             fout.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            reason = _caption_warning_reason(entry["caption"])
+            if reason:
+                suspicious_count += 1
+                if should_warn_count(suspicious_count):
+                    logger.warning(
+                        "Suspicious caption for image_id=%s: %s. Caption=%r",
+                        image_id,
+                        reason,
+                        entry["caption"][:160],
+                    )
+
+            norm_caption = _normalise_caption(entry["caption"])
+            if norm_caption:
+                repeat_count = caption_counts.get(norm_caption, 0) + 1
+                caption_counts[norm_caption] = repeat_count
+                if repeat_count >= 5 and should_warn_count(repeat_count):
+                    logger.warning(
+                        "Caption output repeated %d times so far; latest image_id=%s. Caption=%r",
+                        repeat_count,
+                        image_id,
+                        entry["caption"][:160],
+                    )
+
+            if should_log_progress(index, total):
+                logger.info(
+                    "Captioning progress: %d/%d (%.1f%%) | suspicious=%d",
+                    index,
+                    total,
+                    progress_percent(index, total),
+                    suspicious_count,
+                )
+
             logger.debug("Captioned image_id=%s: %s", image_id, entry["caption"][:80])
 
     logger.info("Captions written to %s (%d entries).", out_path, len(results))

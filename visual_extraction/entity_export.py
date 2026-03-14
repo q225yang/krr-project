@@ -30,6 +30,8 @@ import re
 from pathlib import Path
 from typing import Sequence
 
+from .progress_utils import progress_percent, should_log_progress, should_warn_count
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -294,9 +296,13 @@ def export_entities(
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "visual_entities.jsonl"
     results: list[dict] = []
+    total = len(manifest)
+    suspicious_count = 0
+
+    logger.info("Entity export on %d images. Progress will be logged periodically.", total)
 
     with out_path.open("w", encoding="utf-8") as fout:
-        for rec in manifest:
+        for index, rec in enumerate(manifest, start=1):
             image_id = str(rec["image_id"])
             try:
                 caption = captions_map.get(image_id, "")
@@ -320,6 +326,30 @@ def export_entities(
 
             results.append(entry)
             fout.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            if not entry["entities"] and (
+                entry["caption"] or objects or scene_graph.get("nodes") or scene_graph.get("edges")
+            ):
+                suspicious_count += 1
+                if should_warn_count(suspicious_count):
+                    logger.warning(
+                        "Entity export produced no entities for image_id=%s despite upstream data. "
+                        "caption_len=%d objects=%d edges=%d",
+                        image_id,
+                        len(entry["caption"]),
+                        len(objects),
+                        len(scene_graph.get("edges", [])),
+                    )
+
+            if should_log_progress(index, total):
+                logger.info(
+                    "Entity export progress: %d/%d (%.1f%%) | suspicious=%d",
+                    index,
+                    total,
+                    progress_percent(index, total),
+                    suspicious_count,
+                )
+
             logger.debug(
                 "Entities image_id=%s: %d entities, %d relations.",
                 image_id,

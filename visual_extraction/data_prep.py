@@ -243,7 +243,7 @@ def prepare_subset(
     images_subdir: str = "images",
     seed: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Load metadata, keep all image-only records, and write the manifest.
+    """Load metadata, keep image-only records, and write the manifest.
 
     Parameters
     ----------
@@ -252,7 +252,8 @@ def prepare_subset(
     output_dir:
         Directory where ``subset_manifest.json`` will be written.
     subset_size:
-        Deprecated and ignored. Present only for CLI compatibility.
+        Optional cap on the number of image-only records to keep, preserving
+        dataset order. If omitted, all image-only records are kept.
     images_subdir:
         Subdirectory under *data_dir* where images live.
     seed:
@@ -271,10 +272,14 @@ def prepare_subset(
         "Found %d image-only records out of %d total.", len(image_only), len(records)
     )
 
+    selected_records = image_only
     if subset_size is not None:
+        if subset_size <= 0:
+            raise ValueError("subset_size must be a positive integer when provided.")
+        selected_records = image_only[:subset_size]
         logger.info(
-            "Ignoring deprecated subset_size=%s; writing all image-only records "
-            "to match concept_extraction.py.",
+            "Using only the first %d image-only records for this run "
+            "(full dataset available when subset_size is omitted).",
             subset_size,
         )
     if seed is not None:
@@ -291,7 +296,7 @@ def prepare_subset(
             "category": rec.get("category", "unknown"),
             "question_text": rec.get("question_text", ""),
         }
-        for rec in image_only
+        for rec in selected_records
     ]
 
     # Strict leakage check before writing

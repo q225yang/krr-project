@@ -4,6 +4,7 @@ Covers:
 - Entity normalisation (normalize_entity)
 - Manifest field filtering / leakage prevention (data_prep)
 - Manifest coverage / image-only filtering (data_prep)
+- Progress / warning helpers for long-running stages
 - Scene graph edge resolution helpers (scene_graph)
 - JSON extraction helper (model_backend)
 
@@ -293,7 +294,7 @@ class TestPrepareSubset:
             manifest_path = output_dir / "subset_manifest.json"
             assert manifest_path.exists()
             manifest = json.loads(manifest_path.read_text())
-            assert len(manifest) == 30
+            assert len(manifest) == 15
 
     def test_manifest_keeps_all_image_only_records(self):
         from visual_extraction.data_prep import prepare_subset
@@ -330,9 +331,26 @@ class TestPrepareSubset:
                 json.dumps(meta), encoding="utf-8"
             )
             output_dir = tmp_path / "outputs"
-            manifest = prepare_subset(data_dir, output_dir, subset_size=1, seed=7)
+            manifest = prepare_subset(data_dir, output_dir, seed=7)
 
             assert [rec["image_id"] for rec in manifest] == ["0", "2"]
+
+    def test_manifest_can_limit_records_for_smoke_test(self):
+        from visual_extraction.data_prep import prepare_subset
+
+        meta = self._make_metadata(20)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            data_dir = tmp_path / "data"
+            data_dir.mkdir()
+            (data_dir / "metadata.json").write_text(
+                json.dumps(meta), encoding="utf-8"
+            )
+            output_dir = tmp_path / "outputs"
+            manifest = prepare_subset(data_dir, output_dir, subset_size=1)
+
+            assert len(manifest) == 1
+            assert manifest[0]["image_id"] == "0"
 
     def test_manifest_has_no_answer_field(self):
         from visual_extraction.data_prep import prepare_subset
@@ -350,7 +368,7 @@ class TestPrepareSubset:
                 json.dumps(meta), encoding="utf-8"
             )
             output_dir = tmp_path / "outputs"
-            prepare_subset(data_dir, output_dir, subset_size=10)
+            prepare_subset(data_dir, output_dir)
             manifest = json.loads(
                 (output_dir / "subset_manifest.json").read_text()
             )
@@ -369,7 +387,7 @@ class TestPrepareSubset:
                 json.dumps(meta), encoding="utf-8"
             )
             output_dir = tmp_path / "outputs"
-            prepare_subset(data_dir, output_dir, subset_size=5)
+            prepare_subset(data_dir, output_dir)
             manifest = json.loads(
                 (output_dir / "subset_manifest.json").read_text()
             )
@@ -378,6 +396,36 @@ class TestPrepareSubset:
                 assert "image_path" in rec
                 assert "category" in rec
                 assert "question_text" in rec
+
+
+# ---------------------------------------------------------------------------
+# progress / warning helpers
+# ---------------------------------------------------------------------------
+
+
+class TestProgressAndWarnings:
+    def test_progress_utils_logs_first_middle_and_last(self):
+        from visual_extraction.progress_utils import should_log_progress
+
+        assert should_log_progress(1, 100)
+        assert should_log_progress(10, 100)
+        assert should_log_progress(100, 100)
+        assert not should_log_progress(11, 100)
+
+    def test_caption_warning_reason_detects_prompt_echo(self):
+        from visual_extraction.captioning import _caption_warning_reason
+
+        reason = _caption_warning_reason(
+            "Describe this image in 1 to 3 sentences, focusing on the physical "
+            "objects present, their properties, and any ongoing physical processes."
+        )
+        assert reason == "caption matches the instruction prompt"
+
+    def test_object_warning_reason_detects_generic_output(self):
+        from visual_extraction.object_detection import _object_warning_reason
+
+        reason = _object_warning_reason([{"label": "object"}])
+        assert reason == "only generic object labels were returned"
 
 
 # ---------------------------------------------------------------------------

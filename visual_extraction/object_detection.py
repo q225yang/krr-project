@@ -31,11 +31,13 @@ from pathlib import Path
 from PIL import Image
 
 from .model_backend import VLMBackend
+from .progress_utils import progress_percent, should_log_progress, should_warn_count
 
 logger = logging.getLogger(__name__)
 
 # Allowed size values (normalise anything else to null)
 _VALID_SIZES = {"small", "medium", "large"}
+_GENERIC_OBJECT_LABELS = {"object", "thing", "item"}
 
 
 def _normalise_size(raw: str | None) -> str | None:
@@ -66,6 +68,18 @@ def _normalise_object(obj: dict) -> dict:
     }
 
 
+def _object_warning_reason(objects: list[dict]) -> str | None:
+    if not objects:
+        return "no objects returned"
+
+    labels = [str(obj.get("label", "")).strip().lower() for obj in objects]
+    labels = [label for label in labels if label]
+    if labels and all(label in _GENERIC_OBJECT_LABELS for label in labels):
+        return "only generic object labels were returned"
+
+    return None
+
+
 def detect_objects(
     manifest: list[dict],
     output_dir: Path,
@@ -90,9 +104,14 @@ def detect_objects(
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "objects.jsonl"
     results: list[dict] = []
+    total = len(manifest)
+    suspicious_count = 0
+    signature_counts: dict[str, int] = {}
+
+    logger.info("Object detection on %d images. Progress will be logged periodically.", total)
 
     with out_path.open("w", encoding="utf-8") as fout:
-        for rec in manifest:
+        for index, rec in enumerate(manifest, start=1):
             image_id = str(rec["image_id"])
             image_path = Path(rec["image_path"])
 
@@ -115,6 +134,39 @@ def detect_objects(
             entry = {"image_id": image_id, "objects": objects}
             results.append(entry)
             fout.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            reason = _object_warning_reason(objects)
+            if reason:
+                suspicious_count += 1
+                if should_warn_count(suspicious_count):
+                    logger.warning(
+                        "Suspicious object output for image_id=%s: %s. Objects=%s",
+                        image_id,
+                        reason,
+                        objects[:3],
+                    )
+
+            signature = json.dumps(objects, sort_keys=True, separators=(",", ":"))
+            if objects:
+                repeat_count = signature_counts.get(signature, 0) + 1
+                signature_counts[signature] = repeat_count
+                if repeat_count >= 5 and should_warn_count(repeat_count):
+                    logger.warning(
+                        "Identical object output repeated %d times so far; latest image_id=%s. Objects=%s",
+                        repeat_count,
+                        image_id,
+                        objects[:3],
+                    )
+
+            if should_log_progress(index, total):
+                logger.info(
+                    "Object detection progress: %d/%d (%.1f%%) | suspicious=%d",
+                    index,
+                    total,
+                    progress_percent(index, total),
+                    suspicious_count,
+                )
+
             logger.debug(
                 "Detected %d objects for image_id=%s.", len(objects), image_id
             )

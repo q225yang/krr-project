@@ -68,7 +68,7 @@ All CLI flags:
 | `--images_subdir` | `images` | Subdirectory under `data_dir` where images live (`image` on Sol cluster) |
 | `--output_dir` | `outputs` | Where to write all output files |
 | `--model_name` | `blip2` | VLM backend: `blip2` or `blip` |
-| `--subset_size` | `None` | Deprecated and ignored; the pipeline now uses all `image-only` records |
+| `--subset_size` | `None` | Optional cap on the number of `image-only` records to process; useful for smoke tests like `--subset_size 1` |
 | `--device` | `cuda` | Torch device: `cuda` or `cpu` |
 | `--seed` | `None` | Deprecated and ignored; dataset preparation no longer samples |
 | `--skip_captioning` | off | Load `captions.jsonl` from disk, skip stage 2 |
@@ -89,6 +89,18 @@ python -m visual_extraction.run_pipeline \
     --skip_captioning \
     --skip_objects \
     --skip_scene_graphs
+```
+
+### Quick smoke test
+
+```bash
+python -m visual_extraction.run_pipeline \
+    --data_dir /scratch/<asuid>/krr-data \
+    --images_subdir image \
+    --output_dir outputs_smoketest \
+    --model_name blip2 \
+    --device cuda \
+    --subset_size 1
 ```
 
 ---

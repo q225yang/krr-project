@@ -30,6 +30,7 @@ from pathlib import Path
 from PIL import Image
 
 from .model_backend import VLMBackend
+from .progress_utils import progress_percent, should_log_progress, should_warn_count
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,13 @@ def build_scene_graphs(
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "scene_graphs.jsonl"
     results: list[dict] = []
+    total = len(manifest)
+    suspicious_count = 0
+
+    logger.info("Scene graph construction on %d images. Progress will be logged periodically.", total)
 
     with out_path.open("w", encoding="utf-8") as fout:
-        for rec in manifest:
+        for index, rec in enumerate(manifest, start=1):
             image_id = str(rec["image_id"])
             image_path = Path(rec["image_path"])
             objects = objects_map.get(image_id, [])
@@ -138,6 +143,27 @@ def build_scene_graphs(
             }
             results.append(entry)
             fout.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            if len(nodes) >= 2 and not edges:
+                suspicious_count += 1
+                if should_warn_count(suspicious_count):
+                    logger.warning(
+                        "No scene-graph edges produced for multi-object image_id=%s. "
+                        "nodes=%d object_labels=%s",
+                        image_id,
+                        len(nodes),
+                        [n["label"] for n in nodes[:5]],
+                    )
+
+            if should_log_progress(index, total):
+                logger.info(
+                    "Scene graph progress: %d/%d (%.1f%%) | multi-object-without-edges=%d",
+                    index,
+                    total,
+                    progress_percent(index, total),
+                    suspicious_count,
+                )
+
             logger.debug(
                 "Scene graph image_id=%s: %d nodes, %d edges.",
                 image_id,
