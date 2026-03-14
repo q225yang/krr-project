@@ -3,7 +3,7 @@
 Covers:
 - Entity normalisation (normalize_entity)
 - Manifest field filtering / leakage prevention (data_prep)
-- Stratified sampling distribution (data_prep)
+- Manifest coverage / image-only filtering (data_prep)
 - Scene graph edge resolution helpers (scene_graph)
 - JSON extraction helper (model_backend)
 
@@ -206,57 +206,6 @@ class TestManifestLeakagePrevention:
 
 
 # ---------------------------------------------------------------------------
-# data_prep — stratified_sample
-# ---------------------------------------------------------------------------
-
-
-class TestStratifiedSample:
-    """Tests for visual_extraction.data_prep.stratified_sample."""
-
-    def _make_records(self, categories: list[str]) -> list[dict]:
-        return [
-            {"image_id": str(i), "category": cat, "image_path": "", "question_text": ""}
-            for i, cat in enumerate(categories)
-        ]
-
-    def test_total_size_respected(self):
-        from visual_extraction.data_prep import stratified_sample
-
-        records = self._make_records(["A"] * 50 + ["B"] * 50 + ["C"] * 50)
-        sample = stratified_sample(records, total=30)
-        assert len(sample) == 30
-
-    def test_all_categories_represented(self):
-        from visual_extraction.data_prep import stratified_sample
-
-        records = self._make_records(["dynamics"] * 40 + ["scene"] * 40 + ["relationships"] * 40)
-        sample = stratified_sample(records, total=30)
-        cats = {r["category"] for r in sample}
-        assert cats == {"dynamics", "scene", "relationships"}
-
-    def test_total_exceeding_available_returns_all(self):
-        from visual_extraction.data_prep import stratified_sample
-
-        records = self._make_records(["X"] * 5)
-        sample = stratified_sample(records, total=100)
-        assert len(sample) == 5
-
-    def test_empty_records(self):
-        from visual_extraction.data_prep import stratified_sample
-
-        sample = stratified_sample([], total=10)
-        assert sample == []
-
-    def test_reproducibility(self):
-        from visual_extraction.data_prep import stratified_sample
-
-        records = self._make_records(["A"] * 30 + ["B"] * 30)
-        s1 = stratified_sample(records, total=20, seed=7)
-        s2 = stratified_sample(records, total=20, seed=7)
-        assert [r["image_id"] for r in s1] == [r["image_id"] for r in s2]
-
-
-# ---------------------------------------------------------------------------
 # data_prep — prepare_subset writes correct manifest
 # ---------------------------------------------------------------------------
 
@@ -293,7 +242,46 @@ class TestPrepareSubset:
             manifest_path = output_dir / "subset_manifest.json"
             assert manifest_path.exists()
             manifest = json.loads(manifest_path.read_text())
-            assert len(manifest) == 15
+            assert len(manifest) == 30
+
+    def test_manifest_keeps_all_image_only_records(self):
+        from visual_extraction.data_prep import prepare_subset
+
+        meta = [
+            {
+                "image_id": "0",
+                "image_path": "/fake/images/0.jpg",
+                "category": "dynamics",
+                "question_text": "Question 0?",
+                "mode": "image-only",
+            },
+            {
+                "image_id": "1",
+                "image_path": "/fake/images/1.jpg",
+                "category": "scene",
+                "question_text": "Question 1?",
+                "mode": "general",
+            },
+            {
+                "image_id": "2",
+                "image_path": "/fake/images/2.jpg",
+                "category": "relationships",
+                "question_text": "Question 2?",
+                "mode": "image-only",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            data_dir = tmp_path / "data"
+            data_dir.mkdir()
+            (data_dir / "metadata.json").write_text(
+                json.dumps(meta), encoding="utf-8"
+            )
+            output_dir = tmp_path / "outputs"
+            manifest = prepare_subset(data_dir, output_dir, subset_size=1, seed=7)
+
+            assert [rec["image_id"] for rec in manifest] == ["0", "2"]
 
     def test_manifest_has_no_answer_field(self):
         from visual_extraction.data_prep import prepare_subset

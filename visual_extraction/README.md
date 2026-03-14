@@ -51,14 +51,12 @@ python -m visual_extraction.run_pipeline \
     --images_subdir image \
     --output_dir outputs \
     --model_name blip2 \
-    --subset_size 300 \
     --device cuda
 
 # CPU fallback (local machine, default paths)
 python -m visual_extraction.run_pipeline \
     --data_dir data/physbench \
     --model_name blip \
-    --subset_size 50 \
     --device cpu
 ```
 
@@ -70,9 +68,9 @@ All CLI flags:
 | `--images_subdir` | `images` | Subdirectory under `data_dir` where images live (`image` on Sol cluster) |
 | `--output_dir` | `outputs` | Where to write all output files |
 | `--model_name` | `blip2` | VLM backend: `blip2` or `blip` |
-| `--subset_size` | `300` | Target number of images to sample |
+| `--subset_size` | `None` | Deprecated and ignored; the pipeline now uses all `image-only` records |
 | `--device` | `cuda` | Torch device: `cuda` or `cpu` |
-| `--seed` | `42` | Random seed for stratified sampling |
+| `--seed` | `None` | Deprecated and ignored; dataset preparation no longer samples |
 | `--skip_captioning` | off | Load `captions.jsonl` from disk, skip stage 2 |
 | `--skip_objects` | off | Load `objects.jsonl` from disk, skip stage 3 |
 | `--skip_scene_graphs` | off | Load `scene_graphs.jsonl` from disk, skip stage 4 |
@@ -177,7 +175,7 @@ pytest tests/test_visual_extraction.py -v
 visual_extraction/
 ├── __init__.py          — package metadata
 ├── model_backend.py     — shared VLM wrapper (BLIP-2 / BLIP-base)
-├── data_prep.py         — dataset loading, stratified sampling, manifest
+├── data_prep.py         — dataset loading, image-only filtering, manifest
 ├── captioning.py        — image captioning
 ├── object_detection.py  — object & attribute extraction
 ├── scene_graph.py       — scene graph construction
@@ -194,3 +192,5 @@ visual_extraction/
 1. `_strip_prohibited()` removes `answer`, `label`, `correct_answer`, `ground_truth`, and `gt` from every record before processing.
 2. `_assert_no_leakage()` raises `ValueError` if any prohibited field survives into the final manifest.
 3. Unit tests in `tests/test_visual_extraction.py` verify both checks.
+
+The manifest keeps the historical filename `subset_manifest.json`, but it now contains all `image-only` records so it lines up with `concept_extraction.py`.

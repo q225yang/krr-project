@@ -6,7 +6,7 @@ supervision-leaking metadata are used at any stage.
 
 Pipeline stages
 ---------------
-1. data_prep       – sample a balanced subset from the PhysBench dataset.
+1. data_prep       – keep all image-only records from the PhysBench dataset.
 2. captioning      – generate natural-language captions per image.
 3. object_detection – extract visible objects with attributes.
 4. scene_graph     – build lightweight scene graphs from detected objects.

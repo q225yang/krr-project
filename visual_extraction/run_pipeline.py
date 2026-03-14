@@ -7,7 +7,6 @@ Run with::
         --images_subdir image \\
         --output_dir outputs \\
         --model_name blip2 \\
-        --subset_size 300 \\
         --device cuda
 
 Or using the entry-point installed by pyproject.toml::
@@ -16,7 +15,7 @@ Or using the entry-point installed by pyproject.toml::
 
 Pipeline stages executed in order
 ----------------------------------
-1. ``data_prep``        – load metadata, stratified-sample, write manifest.
+1. ``data_prep``        – load metadata, keep all image-only records, write manifest.
 2. ``captioning``       – generate captions for each image.
 3. ``object_detection`` – extract objects and attributes.
 4. ``scene_graph``      – build per-image scene graphs.
@@ -108,8 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--subset_size",
         type=int,
-        default=300,
-        help="Number of images to sample (stratified across categories).",
+        default=None,
+        help="Deprecated and ignored. The pipeline now uses all image-only records.",
     )
     parser.add_argument(
         "--device",
@@ -121,8 +120,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
-        help="Random seed for stratified sampling.",
+        default=None,
+        help="Deprecated and ignored. Dataset preparation no longer samples.",
     )
     parser.add_argument(
         "--skip_captioning",

@@ -1,8 +1,8 @@
 """Dataset preparation for the visual extraction pipeline.
 
-Loads PhysBench metadata, filters to image-only samples, draws a stratified
-random sample across task categories, and writes a manifest that contains
-*no* answer or label fields.
+Loads PhysBench metadata, keeps every image-only sample in dataset order, and
+writes a manifest that contains *no* answer or label fields. This matches the
+coverage used by ``concept_extraction.py``.
 
 Expected inputs
 ---------------
@@ -31,8 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -149,82 +147,6 @@ def _load_raw_physbench(
 
     return records
 
-
-# ---------------------------------------------------------------------------
-# Stratified sampling
-# ---------------------------------------------------------------------------
-
-def stratified_sample(
-    records: list[dict[str, Any]],
-    total: int,
-    category_key: str = "category",
-    seed: int = 42,
-) -> list[dict[str, Any]]:
-    """Draw a stratified random sample of *total* records across categories.
-
-    If the requested total exceeds the available records, all records are
-    returned.  Categories with fewer records than their proportional share
-    contribute all of their records and the remaining budget is allocated to
-    larger categories.
-
-    Parameters
-    ----------
-    records:
-        Full list of candidate records.
-    total:
-        Target sample size.
-    category_key:
-        Key in each record that holds the category name.
-    seed:
-        Random seed for reproducibility.
-    """
-    rng = random.Random(seed)
-    by_cat: dict[str, list[dict]] = defaultdict(list)
-    for rec in records:
-        by_cat[rec.get(category_key, "unknown")].append(rec)
-
-    cats = sorted(by_cat)  # deterministic order
-    n_cats = len(cats)
-    if n_cats == 0 or total <= 0:
-        return []
-
-    # Initial quota per category
-    quota = {cat: max(1, total // n_cats) for cat in cats}
-    # Distribute remainder
-    remainder = total - sum(quota.values())
-    for cat in cats[:remainder]:
-        quota[cat] += 1
-
-    sampled: list[dict] = []
-    leftover_budget = 0
-    under_cats: list[str] = []
-
-    for cat in cats:
-        pool = by_cat[cat]
-        rng.shuffle(pool)
-        take = min(quota[cat], len(pool))
-        sampled.extend(pool[:take])
-        leftover_budget += quota[cat] - take
-        if take < quota[cat]:
-            under_cats.append(cat)
-
-    # Re-distribute leftover budget to categories that had surplus
-    surplus_cats = [c for c in cats if c not in under_cats]
-    rng.shuffle(surplus_cats)
-    for cat in surplus_cats:
-        if leftover_budget <= 0:
-            break
-        pool = by_cat[cat]
-        already_taken = quota[cat]
-        available = pool[already_taken:]
-        extra = min(leftover_budget, len(available))
-        sampled.extend(available[:extra])
-        leftover_budget -= extra
-
-    rng.shuffle(sampled)
-    return sampled[:total]
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -263,11 +185,11 @@ def load_metadata(
 def prepare_subset(
     data_dir: Path,
     output_dir: Path,
-    subset_size: int = 300,
+    subset_size: int | None = None,
     images_subdir: str = "images",
-    seed: int = 42,
+    seed: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Load metadata, sample a balanced subset, and write the manifest.
+    """Load metadata, keep all image-only records, and write the manifest.
 
     Parameters
     ----------
@@ -276,11 +198,11 @@ def prepare_subset(
     output_dir:
         Directory where ``subset_manifest.json`` will be written.
     subset_size:
-        Target number of images in the subset.
+        Deprecated and ignored. Present only for CLI compatibility.
     images_subdir:
         Subdirectory under *data_dir* where images live.
     seed:
-        Random seed for stratified sampling.
+        Deprecated and ignored. Present only for CLI compatibility.
 
     Returns
     -------
@@ -295,10 +217,19 @@ def prepare_subset(
         "Found %d image-only records out of %d total.", len(image_only), len(records)
     )
 
-    subset = stratified_sample(image_only, total=subset_size, seed=seed)
-    logger.info("Sampled %d records (target %d).", len(subset), subset_size)
+    if subset_size is not None:
+        logger.info(
+            "Ignoring deprecated subset_size=%s; writing all image-only records "
+            "to match concept_extraction.py.",
+            subset_size,
+        )
+    if seed is not None:
+        logger.info(
+            "Ignoring deprecated seed=%s; dataset preparation no longer samples.",
+            seed,
+        )
 
-    # Build final manifest — only allowed fields
+    # Build final manifest — only allowed fields, preserving dataset order.
     manifest = [
         {
             "image_id": str(rec["image_id"]),
@@ -306,7 +237,7 @@ def prepare_subset(
             "category": rec.get("category", "unknown"),
             "question_text": rec.get("question_text", ""),
         }
-        for rec in subset
+        for rec in image_only
     ]
 
     # Strict leakage check before writing

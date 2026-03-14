@@ -1,4 +1,3 @@
-(base) [qyang129@sol-login05:~]$ cat vscode_starter.sh 
 #!/usr/bin/env bash
 set -euo pipefail
 
