@@ -13,7 +13,7 @@
 - After logging into the cluster, clone the repo (you might need to set up the ssh key for the first time, you can follow the github instructions) and setup the environment.
 
     ```
-    git clone git@github.com:[github_id]/krr-project.git
+    git clone git@github.com:q225yang/krr-project.git
     chmod +x scripts/setup_env.sh
     scripts/setup_env.sh        # Also works for updating the environment
     ```
