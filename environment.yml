@@ -3,17 +3,18 @@ channels:
   - pytorch
   - conda-forge
   - defaults
+
 dependencies:
   - python=3.10
+  - sqlite
   - spacy>=3.7,<4.0
   - tqdm
   - requests
   - pillow
-  # PyTorch — conda installs the correct CUDA variant automatically on Sol
   - pytorch>=2.0
   - torchvision
   - pip
   - pip:
-    - transformers>=4.36
-    - accelerate>=0.25
-    - pytest>=7.0
+      - transformers>=4.36
+      - accelerate>=0.25
+      - pytest>=7.0
