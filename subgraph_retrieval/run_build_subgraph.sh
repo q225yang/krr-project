@@ -14,7 +14,7 @@ cd /home/qyang129/krr-project/subgraph_retrieval
 
 # This is the previous image-only file.
 # It is used only to decide which idx values to process.
-INPUT_JSON="../extracted_concepts_improved_full.json"
+INPUT_JSON="../extracted_concepts_improved.json"
 
 # New Qwen entity files.
 IMG_ENTITIES_JSON="../img_entities_qwen.json"
