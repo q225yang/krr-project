@@ -18,7 +18,7 @@ INPUT_JSON="../extracted_concepts_improved_full.json"
 
 # New Qwen entity files.
 IMG_ENTITIES_JSON="../img_entities_qwen.json"
-TEXT_ENTITIES_JSON="../text_entties_qwen.json"
+TEXT_ENTITIES_JSON="../text_entities_qwen.json"
 
 CONCEPTNET_CSV="/scratch/qyang129/conceptnet/conceptnet-assertions-5.7.0.csv"
 SQLITE_DB="conceptnet_en_neighbors.sqlite"
