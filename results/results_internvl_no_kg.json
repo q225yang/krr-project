@@ -1,7 +1,8 @@
 {
   "summary": {
-    "use_kg": false,
+    "kg_source": null,
     "kg_file": null,
+    "kg_max_lines": 0,
     "model": "OpenGVLab/InternVL2_5-8B",
     "mode_filter": "image-only",
     "total": 2093,
