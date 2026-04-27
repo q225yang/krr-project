@@ -227,8 +227,11 @@ def build_prompt_four(question, kg_text):
     )
 
 
-def build_messages(images, prompt_text):
-    content = [{"type": "image", "image": img} for img in images]
+def build_messages(image_paths, prompt_text):
+    """Qwen's chat template needs a path/URL string per image entry to emit the
+    `<|image_pad|>` placeholders correctly. Actual pixel data goes to the
+    processor's `images=` arg separately."""
+    content = [{"type": "image", "image": str(p)} for p in image_paths]
     content.append({"type": "text", "text": prompt_text})
     return [{"role": "user", "content": content}]
 
@@ -273,13 +276,13 @@ generation_kwargs = dict(max_new_tokens=8, do_sample=False, use_cache=True)
 
 
 @torch.inference_mode()
-def run_inference(images, prompt_text):
-    messages = build_messages(images, prompt_text)
+def run_inference(image_paths, pil_images, prompt_text):
+    messages = build_messages(image_paths, prompt_text)
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True,
     )
     inputs = processor(
-        text=[text], images=images, return_tensors="pt", padding=True,
+        text=[text], images=pil_images, return_tensors="pt",
     )
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     out = model.generate(**inputs, **generation_kwargs)
@@ -324,7 +327,7 @@ for sample in questions:
             print(f"idx {idx} skipped: unsupported number of images = {num_images}")
             continue
 
-        output_text = run_inference(images, prompt)
+        output_text = run_inference(image_paths, images, prompt)
 
     except Exception as e:
         print(f"idx {idx} error: {e}")
