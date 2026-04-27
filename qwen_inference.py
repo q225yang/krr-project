@@ -186,6 +186,13 @@ def extract_choice(text):
     return m.group(1) if m else None
 
 
+def strip_image_placeholders(question):
+    """Dataset questions carry InternVL-style `<image>` tokens; Qwen sees them as
+    literal text, which corrupts generation. Drop them — Qwen gets images via
+    the chat-template content list instead."""
+    return re.sub(r"<image>\s*", "", question).strip()
+
+
 # ===================== prompts =====================
 # Same structure as internvl_inference.py, minus the `<image>` placeholders —
 # Qwen receives images as separate message-content entries, not inline tokens.
@@ -245,13 +252,13 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 
 
 # ===================== load data =====================
-with open(QUESTION_FILE) as f:
+with open(QUESTION_FILE, encoding="utf-8") as f:
     questions = json.load(f)
-with open(ANSWER_FILE) as f:
+with open(ANSWER_FILE, encoding="utf-8") as f:
     answers = json.load(f)
 
 if cfg:
-    with open(cfg["file"]) as f:
+    with open(cfg["file"], encoding="utf-8") as f:
         kg_map = cfg["to_map"](json.load(f))
     print(f"loaded KG '{KG_SOURCE}' from {cfg['file']}  ({len(kg_map)} entries)")
 else:
@@ -285,7 +292,7 @@ results = []
 correct = 0
 total = 0
 
-open(OUTPUT_FILE, "w").close()
+open(OUTPUT_FILE, "w", encoding="utf-8").close()
 
 for sample in questions:
     if sample.get("mode") != "image-only":
@@ -294,7 +301,7 @@ for sample in questions:
         break
 
     idx = sample["idx"]
-    question = sample["question"]
+    question = strip_image_placeholders(sample["question"])
     files = sample["file_name"]
     gt = answer_dict[idx]
 
@@ -346,7 +353,7 @@ for sample in questions:
     }
     results.append(result)
 
-    with open(OUTPUT_FILE, "a") as f:
+    with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
     print(
@@ -411,7 +418,7 @@ print("\nPrediction distribution:", pred_dist)
 print("Accuracy by ability_type:", summary["accuracy_by_ability_type"])
 print("Accuracy by kg_bucket:   ", summary["accuracy_by_kg_bucket"])
 
-with open(RESULT_FILE, "w") as f:
+with open(RESULT_FILE, "w", encoding="utf-8") as f:
     json.dump({"summary": summary, "results": results}, f, indent=2, ensure_ascii=False)
 
 print("Saved jsonl to:", OUTPUT_FILE)
