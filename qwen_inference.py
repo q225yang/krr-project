@@ -237,6 +237,9 @@ def get_kg_item(kg_map, idx):
 
 
 # ===================== load model =====================
+
+## if out of memory: processor = AutoProcessor.from_pretrained(MODEL_NAME, min_pixels=224 * 224, max_pixels=336 * 336)
+
 processor = AutoProcessor.from_pretrained(MODEL_NAME)
 processor.tokenizer.padding_side = "left"
 if processor.tokenizer.pad_token is None:
