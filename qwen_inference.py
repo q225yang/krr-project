@@ -19,8 +19,8 @@ import re
 from collections import defaultdict
 
 import torch
-from PIL import Image
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+from qwen_vl_utils import process_vision_info
 
 # ===================== config =====================
 KG_SOURCE = "snowflake_llm"   # "snowflake" | "snowflake_llm" | "vlm" | None
@@ -173,10 +173,6 @@ RESULT_FILE = f"{RESULTS_DIR}/results_qwen_{TAG}.json"
 
 
 # ===================== helpers =====================
-def load_image(image_path):
-    return Image.open(image_path).convert("RGB")
-
-
 def extract_choice(text):
     text = (text or "").strip().upper()
     m = re.search(r"\b([ABCD])\b", text)
@@ -274,16 +270,36 @@ meta_dict   = {a["idx"]: a for a in answers}
 
 generation_kwargs = dict(max_new_tokens=8, do_sample=False, use_cache=True)
 
+_debug_printed = False
+
 
 @torch.inference_mode()
-def run_inference(image_paths, pil_images, prompt_text):
+def run_inference(image_paths, prompt_text):
+    """Canonical Qwen2.5-VL pipeline: messages → chat template → process_vision_info
+    → processor. process_vision_info handles image loading, resizing, and patch
+    counting so the `<|image_pad|>` placeholder count matches the encoder output."""
+    global _debug_printed
     messages = build_messages(image_paths, prompt_text)
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True,
     )
+    image_inputs, video_inputs = process_vision_info(messages)
     inputs = processor(
-        text=[text], images=pil_images, return_tensors="pt",
+        text=[text],
+        images=image_inputs,
+        videos=video_inputs,
+        return_tensors="pt",
+        padding=True,
     )
+    if not _debug_printed:
+        n_pad = text.count("<|image_pad|>")
+        print(f"[debug] chat template length={len(text)} chars, "
+              f"<|image_pad|> count={n_pad}, "
+              f"image_inputs={len(image_inputs) if image_inputs else 0}, "
+              f"input_ids shape={inputs['input_ids'].shape}, "
+              f"has pixel_values={'pixel_values' in inputs}")
+        print(f"[debug] template head: {text[:300]!r}")
+        _debug_printed = True
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     out = model.generate(**inputs, **generation_kwargs)
     trimmed = [o[len(i):] for i, o in zip(inputs["input_ids"], out)]
@@ -317,8 +333,6 @@ for sample in questions:
     num_images = len(image_paths)
 
     try:
-        images = [load_image(p) for p in image_paths]
-
         if num_images == 1:
             prompt = build_prompt_single(question, kg_text)
         elif num_images == 4:
@@ -327,7 +341,7 @@ for sample in questions:
             print(f"idx {idx} skipped: unsupported number of images = {num_images}")
             continue
 
-        output_text = run_inference(image_paths, images, prompt)
+        output_text = run_inference(image_paths, prompt)
 
     except Exception as e:
         print(f"idx {idx} error: {e}")
